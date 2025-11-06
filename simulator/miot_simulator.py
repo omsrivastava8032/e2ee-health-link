@@ -19,7 +19,8 @@ API_ENDPOINT = "https://xypxadidbfankltjojdm.supabase.co/functions/v1/vitals-api
 # ADD YOUR API KEY HERE
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5cHhhZGlkYmZhbmtsdGpvamRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzMjE3OTEsImV4cCI6MjA3Nzg5Nzc5MX0.rHUf01T7OL6Vx8V3sRygXhMRm6L2wK7uI7mpIF5S2ck"
 
-PATIENT_ID = "p123"
+# Device will cycle among these patient IDs
+PATIENT_IDS = ["123", "124", "125"]
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
 INTERVAL_SECONDS = 5
 
@@ -106,7 +107,8 @@ def main():
 
     try:
         while True:
-            # Generate vitals
+            # Pick patient and generate vitals
+            patient_id = random.choice(PATIENT_IDS)
             vitals = generate_vitals()
             print(f"\nGenerated vitals: {vitals}")
 
@@ -116,7 +118,7 @@ def main():
             print(f"Encrypted: {encrypted[:50]}...")
 
             # Send to API
-            send_vitals(encrypted, PATIENT_ID)
+            send_vitals(encrypted, patient_id)
 
             # Wait for next iteration
             time.sleep(INTERVAL_SECONDS)

@@ -25,7 +25,7 @@ interface Vital {
 const Dashboard = () => {
   const [vitals, setVitals] = useState<Vital[]>([]);
   const [loading, setLoading] = useState(true);
-  const [patientId, setPatientId] = useState("p123");
+  const [patientId, setPatientId] = useState("123");
   const [user, setUser] = useState<any>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -183,7 +183,13 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              {user && (
+                <div className="text-sm text-muted-foreground text-right hidden sm:block">
+                  <div>Doctor: {user.email}</div>
+                  <div className="truncate max-w-[220px]">ID: {user.id}</div>
+                </div>
+              )}
               <Button variant="outline" onClick={() => navigate("/profile")}>
                 <Settings className="w-4 h-4 mr-2" />
                 Profile
@@ -204,13 +210,28 @@ const Dashboard = () => {
             <CardDescription>Enter patient ID to view their vitals</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
               <Input
                 placeholder="Patient ID (e.g., p123)"
                 value={patientId}
                 onChange={(e) => setPatientId(e.target.value)}
               />
               <Button onClick={loadVitals}>Load Vitals</Button>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                Quick IDs:
+                {["123", "124", "125"].map((pid) => (
+                  <Button
+                    key={pid}
+                    variant={patientId === pid ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPatientId(pid)}
+                  >
+                    {pid}
+                  </Button>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
