@@ -40,6 +40,46 @@ const Dashboard = () => {
     }
   }, [patientId, user]);
 
+  // Subscribe to realtime vitals for the selected patient
+  useEffect(() => {
+    if (!user || !patientId) return;
+
+    const channelName = `vitals:patient:${patientId}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'vitals',
+          filter: `patient_id=eq.${patientId}`,
+        },
+        async (payload: any) => {
+          try {
+            const row = payload.new as any;
+            // Attempt client-side decryption to keep UI consistent
+            const decryptedJson = await decryptData(row.encrypted_data);
+            const decrypted = JSON.parse(decryptedJson);
+            setVitals((prev) => [{ ...row, decrypted }, ...prev]);
+          } catch (_err) {
+            // If decryption fails, still show the new row (encrypted)
+            setVitals((prev) => [payload.new as any, ...prev]);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Optionally notify subscription is active
+          // console.log(`Subscribed to ${channelName}`);
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [patientId, user]);
+
   const checkAuth = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     
