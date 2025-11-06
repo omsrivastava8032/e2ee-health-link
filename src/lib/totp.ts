@@ -32,15 +32,24 @@ function base32Decode(encoded: string): Uint8Array {
 }
 
 async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  // Convert Uint8Array to proper ArrayBuffer for TypeScript 5.7 compatibility
+  const keyBuffer = new ArrayBuffer(key.length);
+  const keyView = new Uint8Array(keyBuffer);
+  keyView.set(key);
+  
+  const messageBuffer = new ArrayBuffer(message.length);
+  const messageView = new Uint8Array(messageBuffer);
+  messageView.set(message);
+  
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key.buffer,
+    keyBuffer,
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]
   );
   
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message.buffer);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, messageBuffer);
   return new Uint8Array(signature);
 }
 
