@@ -44,7 +44,7 @@ const Dashboard = () => {
   useEffect(() => {
     if (!user || !patientId) return;
 
-    const channelName = `vitals:patient:${patientId}`;
+    const channelName = `vitals:all`;
     const channel = supabase
       .channel(channelName)
       .on(
@@ -53,18 +53,20 @@ const Dashboard = () => {
           event: 'INSERT',
           schema: 'public',
           table: 'vitals',
-          filter: `patient_id=eq.${patientId}`,
         },
         async (payload: any) => {
           try {
             const row = payload.new as any;
+            if (!row || row.patient_id !== patientId) return;
             // Attempt client-side decryption to keep UI consistent
             const decryptedJson = await decryptData(row.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
             setVitals((prev) => [{ ...row, decrypted }, ...prev]);
           } catch (_err) {
             // If decryption fails, still show the new row (encrypted)
-            setVitals((prev) => [payload.new as any, ...prev]);
+            const row = (payload as any).new;
+            if (!row || row.patient_id !== patientId) return;
+            setVitals((prev) => [row as any, ...prev]);
           }
         }
       )
