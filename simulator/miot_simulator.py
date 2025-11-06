@@ -99,7 +99,7 @@ def main():
     print("=" * 60)
     print("MIoT Device Simulator")
     print("=" * 60)
-    print(f"Patient ID: {PATIENT_ID}")
+    print(f"Patient IDs (rotating): {', '.join(PATIENT_IDS)}")
     print(f"API Endpoint: {API_ENDPOINT}")
     print(f"Interval: {INTERVAL_SECONDS} seconds")
     print("=" * 60)
