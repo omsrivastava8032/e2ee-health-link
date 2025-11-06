@@ -12,8 +12,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    // Use neutral names for Edge Function secrets because dashboard disallows SUPABASE_* prefix
+    const supabaseUrl = Deno.env.get('PROJECT_URL')!;
+    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Parse request body
