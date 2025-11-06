@@ -1,0 +1,4 @@
+project_id = "hhashilmjpjvjwsbjchx"
+
+[functions.vitals-api]
+verify_jwt = false

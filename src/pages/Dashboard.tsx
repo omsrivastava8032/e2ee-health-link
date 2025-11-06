@@ -1,0 +1,289 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet } from "lucide-react";
+import { decryptData } from "@/lib/crypto";
+
+interface VitalReading {
+  heartRate: number;
+  spo2: number;
+  temp: number;
+}
+
+interface Vital {
+  vital_id: string;
+  patient_id: string;
+  encrypted_data: string;
+  timestamp: string;
+  decrypted?: VitalReading;
+}
+
+const Dashboard = () => {
+  const [vitals, setVitals] = useState<Vital[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [patientId, setPatientId] = useState("p123");
+  const [user, setUser] = useState<any>(null);
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadVitals();
+    }
+  }, [patientId, user]);
+
+  const checkAuth = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      navigate("/auth");
+      return;
+    }
+    
+    setUser(user);
+  };
+
+  const loadVitals = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("vitals")
+        .select("*")
+        .eq("patient_id", patientId)
+        .order("timestamp", { ascending: false });
+
+      if (error) throw error;
+
+      // Decrypt vitals on client side
+      const decryptedVitals = await Promise.all(
+        (data || []).map(async (vital) => {
+          try {
+            const decryptedJson = await decryptData(vital.encrypted_data);
+            const decrypted = JSON.parse(decryptedJson);
+            return { ...vital, decrypted };
+          } catch (err) {
+            console.error("Failed to decrypt vital:", err);
+            return vital;
+          }
+        })
+      );
+
+      setVitals(decryptedVitals);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    const content = vitals
+      .map((v) => {
+        if (v.decrypted) {
+          return `Timestamp: ${new Date(v.timestamp).toLocaleString()}\nHeart Rate: ${v.decrypted.heartRate} bpm\nSpO2: ${v.decrypted.spo2}%\nTemperature: ${v.decrypted.temp}°C\n---\n`;
+        }
+        return `Timestamp: ${new Date(v.timestamp).toLocaleString()}\nData: [Encrypted]\n---\n`;
+      })
+      .join("\n");
+
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vitals-${patientId}-${new Date().toISOString()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Success",
+      description: "Vitals downloaded successfully",
+    });
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
+
+  const getLatestVital = () => {
+    const latest = vitals.find(v => v.decrypted);
+    return latest?.decrypted;
+  };
+
+  const latest = getLatestVital();
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b bg-card shadow-soft">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl gradient-accent flex items-center justify-center">
+                <Activity className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">MIoT Vitals Dashboard</h1>
+                <p className="text-sm text-muted-foreground flex items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  End-to-end encrypted
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate("/profile")}>
+                <Settings className="w-4 h-4 mr-2" />
+                Profile
+              </Button>
+              <Button variant="outline" onClick={handleLogout}>
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8 space-y-6">
+        <Card className="shadow-medium">
+          <CardHeader>
+            <CardTitle>Patient Selection</CardTitle>
+            <CardDescription>Enter patient ID to view their vitals</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Patient ID (e.g., p123)"
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+              />
+              <Button onClick={loadVitals}>Load Vitals</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {latest && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="shadow-soft gradient-card border-l-4 border-l-accent">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-accent" />
+                  Heart Rate
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{latest.heartRate}</div>
+                <p className="text-sm text-muted-foreground">bpm</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-soft gradient-card border-l-4 border-l-primary">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Droplet className="w-4 h-4 text-primary" />
+                  SpO2
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{latest.spo2}</div>
+                <p className="text-sm text-muted-foreground">%</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-soft gradient-card border-l-4 border-l-destructive">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Thermometer className="w-4 h-4 text-destructive" />
+                  Temperature
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{latest.temp}</div>
+                <p className="text-sm text-muted-foreground">°C</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <Card className="shadow-medium">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Vitals History</CardTitle>
+                <CardDescription>
+                  Patient: {patientId} • {vitals.length} readings
+                </CardDescription>
+              </div>
+              <Button onClick={handleDownload} disabled={vitals.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : vitals.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No vitals found for this patient
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {vitals.map((vital) => (
+                  <div
+                    key={vital.vital_id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-smooth"
+                  >
+                    <div className="flex-1 grid grid-cols-4 gap-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Time</div>
+                        <div className="font-medium">
+                          {new Date(vital.timestamp).toLocaleString()}
+                        </div>
+                      </div>
+                      {vital.decrypted ? (
+                        <>
+                          <div>
+                            <div className="text-sm text-muted-foreground">Heart Rate</div>
+                            <div className="font-medium">{vital.decrypted.heartRate} bpm</div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">SpO2</div>
+                            <div className="font-medium">{vital.decrypted.spo2}%</div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-muted-foreground">Temperature</div>
+                            <div className="font-medium">{vital.decrypted.temp}°C</div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="col-span-3 text-muted-foreground">
+                          [Decryption failed]
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  );
+};
+
+export default Dashboard;
