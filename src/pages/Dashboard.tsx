@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { decryptData } from "@/lib/crypto";
 
 interface VitalReading {
@@ -166,6 +167,17 @@ const Dashboard = () => {
 
   const latest = getLatestVital();
 
+  const chartData = vitals
+    .filter(v => v.decrypted)
+    .slice(0, 50)
+    .map(v => ({
+      time: new Date(v.timestamp).toLocaleTimeString(),
+      heartRate: (v.decrypted as VitalReading).heartRate,
+      spo2: (v.decrypted as VitalReading).spo2,
+      temp: (v.decrypted as VitalReading).temp,
+    }))
+    .reverse();
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card shadow-soft">
@@ -278,6 +290,33 @@ const Dashboard = () => {
             </Card>
           </div>
         )}
+
+        <Card className="shadow-medium">
+          <CardHeader>
+            <CardTitle>Real‑Time Vitals</CardTitle>
+            <CardDescription>Updates automatically as new readings arrive</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No data yet</div>
+            ) : (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="time" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="heartRate" stroke="#22c55e" dot={false} name="Heart Rate" />
+                    <Line type="monotone" dataKey="spo2" stroke="#3b82f6" dot={false} name="SpO2" />
+                    <Line type="monotone" dataKey="temp" stroke="#ef4444" dot={false} name="Temp" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="shadow-medium">
           <CardHeader>
