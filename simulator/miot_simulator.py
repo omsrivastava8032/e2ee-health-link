@@ -15,6 +15,10 @@ import os
 
 # Configuration
 API_ENDPOINT = "https://xypxadidbfankltjojdm.supabase.co/functions/v1/vitals-api"
+
+# ADD YOUR API KEY HERE
+API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5cHhhZGlkYmZhbmtsdGpvamRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzMjE3OTEsImV4cCI6MjA3Nzg5Nzc5MX0.rHUf01T7OL6Vx8V3sRygXhMRm6L2wK7uI7mpIF5S2ck"
+
 PATIENT_ID = "p123"
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
 INTERVAL_SECONDS = 5
@@ -28,10 +32,10 @@ def pad_key(key: bytes) -> bytes:
 def encrypt_data(data: str, key: bytes) -> str:
     """Encrypt data using AES-256-GCM"""
     key = pad_key(key)
-    
+
     # Generate random IV
     iv = os.urandom(12)
-    
+
     # Create cipher
     cipher = Cipher(
         algorithms.AES(key),
@@ -39,13 +43,13 @@ def encrypt_data(data: str, key: bytes) -> str:
         backend=default_backend()
     )
     encryptor = cipher.encryptor()
-    
+
     # Encrypt
     ciphertext = encryptor.update(data.encode()) + encryptor.finalize()
-    
+
     # Combine IV + ciphertext + tag
     combined = iv + ciphertext + encryptor.tag
-    
+
     # Return as base64
     return base64.b64encode(combined).decode()
 
@@ -64,21 +68,27 @@ def send_vitals(encrypted_data: str, patient_id: str) -> bool:
             "patientId": patient_id,
             "data": encrypted_data
         }
-        
+
+        # Create headers with the API key
+        headers = {
+            "Content-Type": "application/json",
+            "apikey": API_KEY
+        }
+
         response = requests.post(
             API_ENDPOINT,
             json=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,  # Use the headers
             timeout=10
         )
-        
+
         if response.status_code == 200:
             print(f"✓ Vitals sent successfully for patient {patient_id}")
             return True
         else:
             print(f"✗ Failed to send vitals: {response.status_code} - {response.text}")
             return False
-            
+
     except Exception as e:
         print(f"✗ Error sending vitals: {e}")
         return False
@@ -93,33 +103,31 @@ def main():
     print(f"Interval: {INTERVAL_SECONDS} seconds")
     print("=" * 60)
     print("\nStarting simulation (Press Ctrl+C to stop)...\n")
-    
+
     try:
         while True:
             # Generate vitals
             vitals = generate_vitals()
             print(f"\nGenerated vitals: {vitals}")
-            
+
             # Encrypt vitals
             vitals_json = json.dumps(vitals)
             encrypted = encrypt_data(vitals_json, ENCRYPTION_KEY)
             print(f"Encrypted: {encrypted[:50]}...")
-            
+
             # Send to API
             send_vitals(encrypted, PATIENT_ID)
-            
+
             # Wait for next iteration
             time.sleep(INTERVAL_SECONDS)
-            
+
     except KeyboardInterrupt:
         print("\n\n✓ Simulator stopped")
 
 if __name__ == "__main__":
-    # Check if API endpoint is configured
-    if "YOUR_SUPABASE_URL" in API_ENDPOINT:
-        print("\n⚠️  Please configure the API_ENDPOINT in the script first!")
-        print("Replace 'YOUR_SUPABASE_URL' with your actual Supabase project URL")
-        print("Example: https://hhashilmjpjvjwsbjchx.supabase.co/functions/v1/vitals-api")
+    # Updated check: Ensure the key is present
+    if not API_KEY:
+        print("\n⚠️  Please configure the API_KEY in the script first!")
         exit(1)
-    
+
     main()
