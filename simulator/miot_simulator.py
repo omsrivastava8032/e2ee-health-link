@@ -16,7 +16,7 @@ import os
 # Configuration
 API_ENDPOINT = "YOUR_SUPABASE_URL/functions/v1/vitals-api"
 PATIENT_ID = "p123"
-ENCRYPTION_KEY = b"your-32-byte-encryption-key-here!"  # Must match client key
+ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
 INTERVAL_SECONDS = 5
 
 def pad_key(key: bytes) -> bytes:

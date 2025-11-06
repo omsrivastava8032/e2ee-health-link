@@ -1,7 +1,7 @@
 // Client-side AES-256 encryption/decryption utilities
 // WARNING: The encryption key should be securely stored and never exposed in production
 
-const ENCRYPTION_KEY = "your-32-byte-encryption-key-here!"; // This should be env var in production
+const ENCRYPTION_KEY = "bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="; // This should be env var in production
 
 export async function encryptData(data: string): Promise<string> {
   const encoder = new TextEncoder();
