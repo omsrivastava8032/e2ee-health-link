@@ -14,7 +14,7 @@ from cryptography.hazmat.backends import default_backend
 import os
 
 # Configuration
-API_ENDPOINT = "YOUR_SUPABASE_URL/functions/v1/vitals-api"
+API_ENDPOINT = "https://hhashilmjpjvjwsbjchx.supabase.co/functions/v1/vitals-api"
 PATIENT_ID = "p123"
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
 INTERVAL_SECONDS = 5
