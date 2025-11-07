@@ -68,6 +68,14 @@ const Profile = () => {
   };
 
   const handleEnable2FA = () => {
+    if (!profile || !profile.email) {
+      toast({
+        title: "Error",
+        description: "Profile not loaded. Please refresh the page.",
+        variant: "destructive",
+      });
+      return;
+    }
     const secret = generateTOTPSecret();
     setTotpSecret(secret);
     setQrCodeURL(generateQRCodeURL(secret, profile.email));
@@ -76,21 +84,34 @@ const Profile = () => {
 
   const handleVerifyAndEnable = async () => {
     try {
+      if (!profile || !profile.id) {
+        throw new Error("Profile not loaded. Please refresh the page.");
+      }
+
       const isValid = await verifyTOTP(verificationCode, totpSecret);
       
       if (!isValid) {
         throw new Error("Invalid verification code");
       }
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
         .update({
           is_2fa_enabled: true,
           totp_secret: totpSecret,
         })
-        .eq("id", profile.id);
+        .eq("id", profile.id)
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("2FA enable error:", error);
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error("Failed to update profile");
+      }
 
       toast({
         title: "Success",
@@ -98,11 +119,13 @@ const Profile = () => {
       });
 
       setShowSetup(false);
+      setVerificationCode("");
       loadProfile();
     } catch (error: any) {
+      console.error("2FA enable error:", error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to enable 2FA",
         variant: "destructive",
       });
     }
@@ -178,9 +201,11 @@ const Profile = () => {
                 </div>
               </div>
               {!profile?.is_2fa_enabled ? (
-                <Button onClick={handleEnable2FA}>Enable 2FA</Button>
+                <Button onClick={handleEnable2FA} disabled={!profile || !profile.email}>
+                  Enable 2FA
+                </Button>
               ) : (
-                <Button variant="destructive" onClick={handleDisable2FA}>
+                <Button variant="destructive" onClick={handleDisable2FA} disabled={!profile}>
                   Disable 2FA
                 </Button>
               )}
