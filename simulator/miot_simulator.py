@@ -22,7 +22,7 @@ API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6
 # Device will cycle among these patient IDs
 PATIENT_IDS = ["123", "124", "125"]
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
-INTERVAL_SECONDS = 5
+INTERVAL_SECONDS = 2
 
 def pad_key(key: bytes) -> bytes:
     """Ensure key is exactly 32 bytes"""
@@ -106,9 +106,11 @@ def main():
     print("\nStarting simulation (Press Ctrl+C to stop)...\n")
 
     try:
+        patient_index = 0
         while True:
-            # Pick patient and generate vitals
-            patient_id = random.choice(PATIENT_IDS)
+            # Rotate through patients sequentially for consistent updates
+            patient_id = PATIENT_IDS[patient_index]
+            patient_index = (patient_index + 1) % len(PATIENT_IDS)
             vitals = generate_vitals()
             print(f"\nGenerated vitals: {vitals}")
 
