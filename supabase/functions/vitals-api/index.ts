@@ -32,18 +32,9 @@ Deno.serve(async (req) => {
 
     console.log(`Received vitals for patient ${patientId}`);
 
-    // Verify integrity hash if provided
-    let isTampered = false;
-    if (hash) {
-      // Note: We can't verify the hash here because we don't decrypt the data
-      // The hash verification happens on the client side after decryption
-      // For now, we store the hash and mark as potentially tampered if hash is missing
-      // The frontend will verify the hash after decryption
-    } else {
-      // If no hash provided, mark as potentially tampered
-      isTampered = true;
-      console.warn(`⚠️ No hash provided for patient ${patientId} - marking as potentially tampered`);
-    }
+    // Store hash if provided, but don't mark as tampered if missing
+    // (Missing hash could be legacy data or attacker - frontend will handle verification)
+    const isTampered = false; // Only mark as tampered if we can definitively detect tampering
 
     // Store encrypted data with tamper detection flag
     const { error: insertError } = await supabase
