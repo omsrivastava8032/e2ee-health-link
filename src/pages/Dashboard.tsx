@@ -46,6 +46,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     checkAuth();
+    // Clean up subscription on component unmount
     return () => {
       if (channel) {
         supabase.removeChannel(channel);
@@ -58,7 +59,7 @@ const Dashboard = () => {
     if (!user) return; // Don't log if user isn't loaded
     try {
       const { error } = await supabase.from("security_events").insert({
-        event_type: eventType,
+        event_type: eventType, // This will now be "Modification of Messages"
         patient_id: patientId,
         metadata: metadata,
         user_id: user.id, // Link to the user who detected it
@@ -68,8 +69,8 @@ const Dashboard = () => {
       } else {
         console.warn(`Security event logged: ${eventType}`);
         toast({
-          title: "Security Alert",
-          description: `Detected a ${eventType} event for patient ${patientId}`,
+          title: "Security Alert!",
+          description: `Detected Attack: ${eventType}`,
           variant: "destructive",
         });
       }
@@ -120,20 +121,19 @@ const Dashboard = () => {
         (existingVitals || []).map(async (vital) => {
           try {
             // --- THIS IS THE DEFENSE ---
-            // Try to decrypt. If it fails, the data is malicious/tampered.
             const decryptedJson = await decryptData(vital.encrypted_data);
             const data = JSON.parse(decryptedJson);
             decryptedList.push({ ...data, timestamp: vital.timestamp });
           } catch (err) {
             // --- THIS IS THE DETECTION ---
             console.error("Failed to decrypt vital:", err);
-            // It failed! Add to MALICIOUS list
             failedList.push({ ...vital, error: (err as Error).message, encrypted_data: vital.encrypted_data });
-            // Log the attack
-            await logSecurityEvent("decryption_failure_history", vital.patient_id, {
+            // Log the attack with your new text
+            await logSecurityEvent("Modification of Messages", vital.patient_id, {
+              reason: "Data integrity-violated",
               vital_id: vital.vital_id,
               timestamp: vital.timestamp,
-              data: vital.encrypted_data.substring(0, 50) + "..."
+              tampered_data: vital.encrypted_data
             });
             // --------------------------
           }
@@ -188,14 +188,14 @@ const Dashboard = () => {
             } catch (err) {
               // --- REAL-TIME DETECTION ---
               console.error("Failed to decrypt real-time vital:", err);
-              // It's malicious. Add to MALICIOUS list.
-              const newFailedVital: FailedVital = { ...newRow, error: (err as Error).message };
+              const newFailedVital: FailedVital = { ...newRow, error: (err as Error).message, encrypted_data: newRow.encrypted_data };
               setFailedVitals((currentFailed) => [newFailedVital, ...currentFailed]);
-              // Log the attack
-              await logSecurityEvent("decryption_failure_realtime", newRow.patient_id, {
+              // Log the attack with your new text
+              await logSecurityEvent("Modification of Messages", newRow.patient_id, {
+                reason: "Data integrity-violated",
                 vital_id: newRow.vital_id,
                 timestamp: newRow.timestamp,
-                data: newRow.encrypted_data.substring(0, 50) + "..."
+                tampered_data: newRow.encrypted_data
               });
               // --------------------------
             }
@@ -229,7 +229,7 @@ const Dashboard = () => {
     if (failedVitals.length > 0) {
       content += "\n\n--- DETECTED MALICIOUS ENTRIES (REJECTED) ---\n";
       content += failedVitals
-        .map((v) => `Timestamp: ${new Date(v.timestamp).toLocaleString()}\nError: ${v.error}\nTampered Data: ${v.encrypted_data}\n---\n`)
+        .map((v) => `Attack Type: Modification of Messages\nTimestamp: ${new Date(v.timestamp).toLocaleString()}\nReason: Data integrity-violated\nTampered Data: ${v.encrypted_data}\n---\n`)
         .join("\n");
     }
 
@@ -264,6 +264,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Header remains the same */}
       <header className="border-b bg-card shadow-soft">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -294,6 +295,7 @@ const Dashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-6">
+        {/* Patient Selection Card remains the same */}
         <Card className="shadow-medium">
           <CardHeader>
             <CardTitle>Patient Selection</CardTitle>
@@ -313,6 +315,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
+        {/* Latest Vitals Cards remain the same */}
         {latest && (
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="shadow-soft gradient-card border-l-4 border-l-accent">
@@ -330,6 +333,7 @@ const Dashboard = () => {
           </div>
         )}
 
+        {/* Real-Time Chart Card remains the same */}
         <Card className="shadow-medium">
           <CardHeader>
             <CardTitle>Real-Time Vitals Chart (Valid Data Only)</CardTitle>
@@ -379,6 +383,10 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
+        {/* --- 
+          UPDATED VITALS HISTORY CARD 
+          This is where your requested changes are.
+        --- */}
         <Card className="shadow-medium">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -406,8 +414,7 @@ const Dashboard = () => {
             ) : (
               <div className="space-y-3">
                 
-                {/* --- THIS IS THE PROOF OF DETECTION --- */}
-                {/* This section ONLY shows malicious data */}
+                {/* --- THIS IS THE DISPLAY FOR YOUR MALICIOUS DATA --- */}
                 {failedVitals.map((vital) => (
                   <div
                     key={vital.vital_id}
@@ -416,15 +423,20 @@ const Dashboard = () => {
                     <div className="flex items-center gap-4">
                       <AlertTriangle className="w-5 h-5" />
                       <div>
+                        {/* --- YOUR REQUESTED TEXT --- */}
                         <div className="font-medium">
-                          MALICIOUS ENTRY DETECTED at {new Date(vital.timestamp).toLocaleString()}
+                          Attack Type: Modification of Messages
                         </div>
                         <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Reason: Data tampering detected (decryption failed)
+                          Reason: Data integrity-violated
                         </div>
                         <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Tampered Data: {vital.encrypted_data.substring(0, 40)}...
+                          Timestamp: {new Date(vital.timestamp).toLocaleString()}
                         </div>
+                        <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
+                          Tampered Data: {vital.encrypted_data}
+                        </div>
+                        {/* --------------------------- */}
                       </div>
                     </div>
                   </div>
