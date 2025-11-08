@@ -68,17 +68,24 @@ const Dashboard = () => {
             const decryptedJson = await decryptData(row.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
             
-            // Verify hash
-            let verified = false;
+            // Verify hash if present
+            let verified = true;
+            let isTampered = row.is_tampered || false;
+            
             if (row.data_hash) {
               verified = await verifyHash(decryptedJson, row.data_hash);
+              if (!verified) {
+                isTampered = true; // Hash mismatch = tampered
+              }
+            } else {
+              // No hash = legacy data, not tampered
+              verified = false;
+              isTampered = false;
             }
             
-            const isTampered = row.is_tampered || !verified;
-            
-            // Only add if not tampered
+            // Only block if actually tampered
             if (!isTampered) {
-              setVitals((prev) => [{ ...row, decrypted, verified: true }, ...prev]);
+              setVitals((prev) => [{ ...row, decrypted, verified, is_tampered: false }, ...prev]);
             } else {
               // Show alert for tampered entry
               toast({
@@ -141,19 +148,27 @@ const Dashboard = () => {
             const decrypted = JSON.parse(decryptedJson);
             
             // Verify hash if present
-            let verified = false;
+            let verified = true; // Assume valid if no hash (for backward compatibility)
+            let isTampered = vital.is_tampered || false;
+            
             if (vital.data_hash) {
+              // If hash exists, verify it
               verified = await verifyHash(decryptedJson, vital.data_hash);
+              if (!verified) {
+                isTampered = true; // Hash mismatch = tampered
+              }
             } else {
-              // No hash = potentially tampered
+              // No hash = old data (before hash verification was added)
+              // Don't mark as tampered, just mark as unverified
               verified = false;
+              isTampered = false; // Not tampered, just legacy data
             }
             
             return { 
               ...vital, 
               decrypted, 
               verified,
-              is_tampered: vital.is_tampered || !verified
+              is_tampered: isTampered
             };
           } catch (err) {
             console.error("Failed to decrypt vital:", err);
@@ -162,12 +177,12 @@ const Dashboard = () => {
         })
       );
 
-      // Filter out tampered entries - only show verified data
-      const validVitals = decryptedVitals.filter(v => !v.is_tampered && v.verified);
+      // Filter out ONLY tampered entries (not unverified legacy data)
+      const validVitals = decryptedVitals.filter(v => !v.is_tampered);
       setVitals(validVitals);
       
-      // Show warning if tampered entries were found
-      const tamperedCount = decryptedVitals.filter(v => v.is_tampered || !v.verified).length;
+      // Show warning only for actually tampered entries (not legacy data)
+      const tamperedCount = decryptedVitals.filter(v => v.is_tampered === true).length;
       if (tamperedCount > 0) {
         toast({
           title: "Security Alert",
