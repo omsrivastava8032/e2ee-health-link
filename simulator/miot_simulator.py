@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MIoT Attack Simulator (Dataset-Driven)
-Reads from a CSV dataset and sends data in sets of 10.
+MIoT Device Simulator & Attacker
+Reads from a CSV dataset and sends data in sets.
 Intentionally tampers with one entry in each set to simulate a MITM attack.
 """
 
@@ -20,11 +20,10 @@ API_ENDPOINT = "https://xypxadidbfankltjojdm.supabase.co/functions/v1/vitals-api
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5cHhhZGlkYmZhbmtsdGpvamRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzMjE3OTEsImV4cCI6MjA3Nzg5Nzc5MX0.rHUf01T7OL6Vx8V3sRygXhMRm6L2wK7uI7mpIF5S2ck"
 PATIENT_ID = "p123"
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="
-INTERVAL_SECONDS = 2  # Time between each reading
-SET_SIZE = 10         # Send 10 readings in a set
+INTERVAL_SECONDS = 2  # Send one entry every 2 seconds
+SET_SIZE = 10         # Send in sets of 10
 ATTACK_INDEX = 5      # Attack the 5th item in every set
-# Use the new dataset file you uploaded
-DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx - Sheet1.csv')
+DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx - Sheet1.csv') # Path to your new CSV
 
 def pad_key(key: bytes) -> bytes:
     """Ensure key is exactly 32 bytes"""
@@ -73,20 +72,16 @@ def main():
     try:
         print(f"Loading dataset from: {DATASET_FILE}")
         df = pd.read_csv(DATASET_FILE)
-        # We only need these columns. Rename them to match our JSON.
+        # Use the columns from your new CSV
         df = df[['Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)']].rename(columns={
             'Heart Rate (bpm)': 'heartRate',
             'SpO2 Level (%)': 'spo2',
             'Body Temperature (°C)': 'temp'
-        }).dropna() # Drop rows with missing data
+        }).dropna()
         print(f"Successfully loaded {len(df)} records.")
     except FileNotFoundError:
         print(f"✗ ERROR: Cannot find dataset file: {DATASET_FILE}")
-        print("Please make sure 'patients_data_with_alerts.xlsx - Sheet1.csv' is in the 'simulator' folder.")
-        return
-    except KeyError:
-        print("✗ ERROR: Dataset columns do not match.")
-        print("Please ensure the CSV has columns: 'Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)'")
+        print("Please make sure the file is in the 'simulator' folder.")
         return
     except Exception as e:
         print(f"✗ ERROR: Could not read dataset: {e}")
@@ -99,41 +94,40 @@ def main():
     print("\nStarting simulation (Press Ctrl+C to stop)...\n")
     
     try:
-        # Loop through the dataset in chunks (sets) of 10
         for i in range(0, len(df) - SET_SIZE, SET_SIZE):
             print(f"\n--- Sending Set {i // SET_SIZE + 1} ---")
             
+            # Get 10 records from the dataset
             data_set = df.iloc[i : i + SET_SIZE]
             
             for j, row in enumerate(data_set.to_dict('records')):
-                # Clean up data just in case
-                vitals = {
+                is_attack = (j == ATTACK_INDEX)
+                
+                # Format data to match your model
+                vitals_data = {
                     "heartRate": int(row['heartRate']),
                     "spo2": int(row['spo2']),
                     "temp": round(float(row['temp']), 1)
                 }
+                print(f"Entry {j+1}/{SET_SIZE}: {vitals_data}")
                 
-                is_attack = (j == ATTACK_INDEX - 1) # Attack the 5th item (index 4)
-                
-                print(f"Entry {j+1}/{SET_SIZE}: {vitals}")
-                
-                vitals_json = json.dumps(vitals)
+                vitals_json = json.dumps(vitals_data)
                 encrypted = encrypt_data(vitals_json, ENCRYPTION_KEY)
                 
                 if is_attack:
-                    # --- THIS IS THE ATTACKER CODE ---
+                    # --- THIS IS THE ATTACK CODE ---
                     print("  -> SIMULATING ATTACK: Tampering with encrypted data...")
                     tampered_data_list = list(encrypted)
                     idx_to_tamper = len(tampered_data_list) // 2
                     tampered_data_list[idx_to_tamper] = 'X' # Flip a bit
                     encrypted = "".join(tampered_data_list)
-                    # ---------------------------------
+                    # -------------------------------
                 
                 send_vitals(encrypted, PATIENT_ID, is_attack)
                 time.sleep(INTERVAL_SECONDS) # Wait between each send
                 
-            print("--- Set complete ---")
-        print("\nAll data from dataset sent.")
+            print("--- Set complete, waiting 10s for next set ---")
+            time.sleep(10)
             
     except KeyboardInterrupt:
         print("\n\n✓ Simulator stopped")
