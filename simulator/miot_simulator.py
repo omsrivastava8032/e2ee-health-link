@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-MIoT Device Simulator
-Simulates a medical IoT device sending encrypted patient vitals
+MIoT Attack Simulator (Dataset-Driven)
+Reads from a CSV dataset and sends data in sets of 10.
+Intentionally tampers with one entry in each set to simulate a MITM attack.
 """
 
 import json
@@ -11,20 +12,19 @@ import base64
 import requests
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, hmac
 import os
+import pandas as pd  # NEW import
 
-# Configuration
+# --- CONFIGURATION ---
 API_ENDPOINT = "https://xypxadidbfankltjojdm.supabase.co/functions/v1/vitals-api"
-
-# ADD YOUR API KEY HERE
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5cHhhZGlkYmZhbmtsdGpvamRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzMjE3OTEsImV4cCI6MjA3Nzg5Nzc5MX0.rHUf01T7OL6Vx8V3sRygXhMRm6L2wK7uI7mpIF5S2ck"
-
-# Device will cycle among these patient IDs
-PATIENT_IDS = ["123", "124", "125"]
-ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
-INTEGRITY_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # HMAC key for integrity verification
-INTERVAL_SECONDS = 2
+PATIENT_ID = "p123"
+ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="
+INTERVAL_SECONDS = 2  # Time between each reading
+SET_SIZE = 10         # Send 10 readings in a set
+ATTACK_INDEX = 5      # Attack the 5th item in every set
+# Use the new dataset file you uploaded
+DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx - Sheet1.csv')
 
 def pad_key(key: bytes) -> bytes:
     """Ensure key is exactly 32 bytes"""
@@ -35,117 +35,111 @@ def pad_key(key: bytes) -> bytes:
 def encrypt_data(data: str, key: bytes) -> str:
     """Encrypt data using AES-256-GCM"""
     key = pad_key(key)
-
-    # Generate random IV
     iv = os.urandom(12)
-
-    # Create cipher
-    cipher = Cipher(
-        algorithms.AES(key),
-        modes.GCM(iv),
-        backend=default_backend()
-    )
+    cipher = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend())
     encryptor = cipher.encryptor()
-
-    # Encrypt
     ciphertext = encryptor.update(data.encode()) + encryptor.finalize()
-
-    # Combine IV + ciphertext + tag
     combined = iv + ciphertext + encryptor.tag
-
-    # Return as base64
     return base64.b64encode(combined).decode()
 
-def generate_hash(data: str, key: bytes) -> str:
-    """Generate HMAC-SHA256 hash for data integrity verification"""
-    h = hmac.HMAC(key, hashes.SHA256(), backend=default_backend())
-    h.update(data.encode())
-    return base64.b64encode(h.finalize()).decode()
-
-def generate_vitals() -> dict:
-    """Generate random but realistic vital signs"""
-    return {
-        "heartRate": random.randint(60, 100),
-        "spo2": random.randint(95, 100),
-        "temp": round(random.uniform(36.0, 37.5), 1)
-    }
-
-def send_vitals(encrypted_data: str, patient_id: str, data_hash: str) -> bool:
-    """Send encrypted vitals to the API with integrity hash"""
+def send_vitals(encrypted_data: str, patient_id: str, is_attack: bool) -> bool:
+    """Send encrypted vitals to the API"""
     try:
-        payload = {
-            "patientId": patient_id,
-            "data": encrypted_data,
-            "hash": data_hash
-        }
-
-        # Create headers with the API key
-        headers = {
-            "Content-Type": "application/json",
-            "apikey": API_KEY
-        }
-
-        response = requests.post(
-            API_ENDPOINT,
-            json=payload,
-            headers=headers,  # Use the headers
-            timeout=10
-        )
-
+        payload = {"patientId": patient_id, "data": encrypted_data}
+        headers = {"Content-Type": "application/json", "apikey": API_KEY}
+        
+        response = requests.post(API_ENDPOINT, json=payload, headers=headers, timeout=10)
+        
         if response.status_code == 200:
-            print(f"✓ Vitals sent successfully for patient {patient_id}")
+            if is_attack:
+                print(f"  -> ATTACK: Sent MALICIOUS payload for patient {patient_id}")
+            else:
+                print(f"  -> VALID: Sent payload for patient {patient_id}")
             return True
         else:
-            print(f"✗ Failed to send vitals: {response.status_code} - {response.text}")
+            print(f"  -> FAILED to send: {response.status_code} - {response.text}")
             return False
-
+            
     except Exception as e:
-        print(f"✗ Error sending vitals: {e}")
+        print(f"  -> FAILED to send: {e}")
         return False
 
 def main():
     """Main simulator loop"""
     print("=" * 60)
-    print("MIoT Device Simulator")
+    print("MIoT ATTACK Simulator (MITM Data Tampering)")
     print("=" * 60)
-    print(f"Patient IDs (rotating): {', '.join(PATIENT_IDS)}")
-    print(f"API Endpoint: {API_ENDPOINT}")
-    print(f"Interval: {INTERVAL_SECONDS} seconds")
+    
+    try:
+        print(f"Loading dataset from: {DATASET_FILE}")
+        df = pd.read_csv(DATASET_FILE)
+        # We only need these columns. Rename them to match our JSON.
+        df = df[['Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)']].rename(columns={
+            'Heart Rate (bpm)': 'heartRate',
+            'SpO2 Level (%)': 'spo2',
+            'Body Temperature (°C)': 'temp'
+        }).dropna() # Drop rows with missing data
+        print(f"Successfully loaded {len(df)} records.")
+    except FileNotFoundError:
+        print(f"✗ ERROR: Cannot find dataset file: {DATASET_FILE}")
+        print("Please make sure 'patients_data_with_alerts.xlsx - Sheet1.csv' is in the 'simulator' folder.")
+        return
+    except KeyError:
+        print("✗ ERROR: Dataset columns do not match.")
+        print("Please ensure the CSV has columns: 'Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)'")
+        return
+    except Exception as e:
+        print(f"✗ ERROR: Could not read dataset: {e}")
+        return
+
+    print(f"Patient ID: {PATIENT_ID}")
+    print(f"Sending data in sets of {SET_SIZE}...")
+    print(f"One entry in each set (index {ATTACK_INDEX}) will be tampered with.")
     print("=" * 60)
     print("\nStarting simulation (Press Ctrl+C to stop)...\n")
-
+    
     try:
-        patient_index = 0
-        while True:
-            # Rotate through patients sequentially for consistent updates
-            patient_id = PATIENT_IDS[patient_index]
-            patient_index = (patient_index + 1) % len(PATIENT_IDS)
-            vitals = generate_vitals()
-            print(f"\nGenerated vitals: {vitals}")
-
-            # Encrypt vitals
-            vitals_json = json.dumps(vitals)
-            encrypted = encrypt_data(vitals_json, ENCRYPTION_KEY)
+        # Loop through the dataset in chunks (sets) of 10
+        for i in range(0, len(df) - SET_SIZE, SET_SIZE):
+            print(f"\n--- Sending Set {i // SET_SIZE + 1} ---")
             
-            # Generate integrity hash (hash the original JSON before encryption)
-            data_hash = generate_hash(vitals_json, INTEGRITY_KEY)
+            data_set = df.iloc[i : i + SET_SIZE]
             
-            print(f"Encrypted: {encrypted[:50]}...")
-            print(f"Hash: {data_hash[:20]}...")
-
-            # Send to API
-            send_vitals(encrypted, patient_id, data_hash)
-
-            # Wait for next iteration
-            time.sleep(INTERVAL_SECONDS)
-
+            for j, row in enumerate(data_set.to_dict('records')):
+                # Clean up data just in case
+                vitals = {
+                    "heartRate": int(row['heartRate']),
+                    "spo2": int(row['spo2']),
+                    "temp": round(float(row['temp']), 1)
+                }
+                
+                is_attack = (j == ATTACK_INDEX - 1) # Attack the 5th item (index 4)
+                
+                print(f"Entry {j+1}/{SET_SIZE}: {vitals}")
+                
+                vitals_json = json.dumps(vitals)
+                encrypted = encrypt_data(vitals_json, ENCRYPTION_KEY)
+                
+                if is_attack:
+                    # --- THIS IS THE ATTACKER CODE ---
+                    print("  -> SIMULATING ATTACK: Tampering with encrypted data...")
+                    tampered_data_list = list(encrypted)
+                    idx_to_tamper = len(tampered_data_list) // 2
+                    tampered_data_list[idx_to_tamper] = 'X' # Flip a bit
+                    encrypted = "".join(tampered_data_list)
+                    # ---------------------------------
+                
+                send_vitals(encrypted, PATIENT_ID, is_attack)
+                time.sleep(INTERVAL_SECONDS) # Wait between each send
+                
+            print("--- Set complete ---")
+        print("\nAll data from dataset sent.")
+            
     except KeyboardInterrupt:
         print("\n\n✓ Simulator stopped")
 
 if __name__ == "__main__":
-    # Updated check: Ensure the key is present
     if not API_KEY:
         print("\n⚠️  Please configure the API_KEY in the script first!")
         exit(1)
-
     main()
