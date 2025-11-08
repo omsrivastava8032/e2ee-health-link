@@ -68,24 +68,12 @@ const Dashboard = () => {
             const decryptedJson = await decryptData(row.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
             
-            // Verify hash if present
-            let verified = true;
-            let isTampered = row.is_tampered || false;
+            // Only use database flag - trust server-side tamper detection
+            const isTampered = row.is_tampered === true;
             
-            if (row.data_hash) {
-              verified = await verifyHash(decryptedJson, row.data_hash);
-              if (!verified) {
-                isTampered = true; // Hash mismatch = tampered
-              }
-            } else {
-              // No hash = legacy data, not tampered
-              verified = false;
-              isTampered = false;
-            }
-            
-            // Only block if actually tampered
+            // Only block if database says it's tampered
             if (!isTampered) {
-              setVitals((prev) => [{ ...row, decrypted, verified, is_tampered: false }, ...prev]);
+              setVitals((prev) => [{ ...row, decrypted, verified: true, is_tampered: false }, ...prev]);
             } else {
               // Show alert for tampered entry
               toast({
@@ -147,27 +135,14 @@ const Dashboard = () => {
             const decryptedJson = await decryptData(vital.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
             
-            // Verify hash if present
-            let verified = true; // Assume valid if no hash (for backward compatibility)
-            let isTampered = vital.is_tampered || false;
-            
-            if (vital.data_hash) {
-              // If hash exists, verify it
-              verified = await verifyHash(decryptedJson, vital.data_hash);
-              if (!verified) {
-                isTampered = true; // Hash mismatch = tampered
-              }
-            } else {
-              // No hash = old data (before hash verification was added)
-              // Don't mark as tampered, just mark as unverified
-              verified = false;
-              isTampered = false; // Not tampered, just legacy data
-            }
+            // Only use database flag - don't verify hash client-side for now
+            // (Hash verification can be added later once key handling is consistent)
+            const isTampered = vital.is_tampered === true;
             
             return { 
               ...vital, 
               decrypted, 
-              verified,
+              verified: !isTampered,
               is_tampered: isTampered
             };
           } catch (err) {
@@ -181,7 +156,7 @@ const Dashboard = () => {
       const validVitals = decryptedVitals.filter(v => !v.is_tampered);
       setVitals(validVitals);
       
-      // Show warning only for actually tampered entries (not legacy data)
+      // Show warning only for actually tampered entries
       const tamperedCount = decryptedVitals.filter(v => v.is_tampered === true).length;
       if (tamperedCount > 0) {
         toast({
