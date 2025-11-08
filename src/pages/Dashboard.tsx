@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet, AlertTriangle } from "lucide-react"; // Import AlertTriangle
+import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet, AlertTriangle } from "lucide-react";
 import { decryptData } from "@/lib/crypto";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -21,7 +21,6 @@ interface VitalReading {
 // Interface for the data we'll store in our state (with timestamp)
 interface DecryptedVital extends VitalReading {
   timestamp: string;
-  vital_id: string; // Add vital_id to use as a key
 }
 
 // Interface for a vital that failed decryption (malicious)
@@ -33,8 +32,11 @@ interface FailedVital {
 }
 
 const Dashboard = () => {
+  // This holds the GOOD data
   const [vitals, setVitals] = useState<DecryptedVital[]>([]);
+  // This holds the MALICIOUS data
   const [failedVitals, setFailedVitals] = useState<FailedVital[]>([]);
+  
   const [loading, setLoading] = useState(false);
   const [patientId, setPatientId] = useState("p123");
   const [user, setUser] = useState<any>(null);
@@ -44,7 +46,6 @@ const Dashboard = () => {
 
   useEffect(() => {
     checkAuth();
-    // Clean up the subscription when the component unmounts
     return () => {
       if (channel) {
         supabase.removeChannel(channel);
@@ -52,7 +53,7 @@ const Dashboard = () => {
     };
   }, [channel]);
 
-  // This function logs security events to your new table
+  // This function logs the attack to your new 'security_events' table
   const logSecurityEvent = async (eventType: string, patientId: string, metadata: any) => {
     if (!user) return; // Don't log if user isn't loaded
     try {
@@ -67,7 +68,7 @@ const Dashboard = () => {
       } else {
         console.warn(`Security event logged: ${eventType}`);
         toast({
-          title: "Security Alert: Malicious Data Detected!",
+          title: "Security Alert",
           description: `Detected a ${eventType} event for patient ${patientId}`,
           variant: "destructive",
         });
@@ -86,7 +87,6 @@ const Dashboard = () => {
     setUser(user);
   };
 
-  // This function loads historical data AND subscribes to real-time updates
   const handleLoadAndSubscribe = async () => {
     if (!patientId) {
       toast({ title: "Please enter a Patient ID", variant: "destructive" });
@@ -98,10 +98,9 @@ const Dashboard = () => {
       supabase.removeChannel(channel);
       setChannel(null);
     }
-    
     // Clear old data on new load
     setVitals([]);
-    setFailedVitals([]); 
+    setFailedVitals([]);
 
     try {
       // 1. Fetch all historical data for this patient
@@ -109,30 +108,34 @@ const Dashboard = () => {
         .from("vitals")
         .select("vital_id, encrypted_data, timestamp, patient_id")
         .eq("patient_id", patientId)
-        .order("timestamp", { ascending: false }); // Get newest first
+        .order("timestamp", { ascending: false });
 
       if (error) throw error;
 
       const decryptedList: DecryptedVital[] = [];
       const failedList: FailedVital[] = [];
 
-      // 2. Process all historical data
+      // 2. Process historical data
       await Promise.all(
         (existingVitals || []).map(async (vital) => {
           try {
-            // TRY to decrypt (This is the defense)
+            // --- THIS IS THE DEFENSE ---
+            // Try to decrypt. If it fails, the data is malicious/tampered.
             const decryptedJson = await decryptData(vital.encrypted_data);
             const data = JSON.parse(decryptedJson);
-            // SUCCESS: Add to VALID list
-            decryptedList.push({ ...data, timestamp: vital.timestamp, vital_id: vital.vital_id });
+            decryptedList.push({ ...data, timestamp: vital.timestamp });
           } catch (err) {
-            // CATCH FAILURE: This is a MALICIOUS entry
+            // --- THIS IS THE DETECTION ---
+            console.error("Failed to decrypt vital:", err);
+            // It failed! Add to MALICIOUS list
             failedList.push({ ...vital, error: (err as Error).message, encrypted_data: vital.encrypted_data });
             // Log the attack
             await logSecurityEvent("decryption_failure_history", vital.patient_id, {
               vital_id: vital.vital_id,
+              timestamp: vital.timestamp,
               data: vital.encrypted_data.substring(0, 50) + "..."
             });
+            // --------------------------
           }
         })
       );
@@ -147,7 +150,7 @@ const Dashboard = () => {
         });
       }
 
-      // 3. Create a NEW real-time subscription
+      // 3. Subscribe to real-time updates
       const newChannel = supabase
         .channel(`vitals-for-${patientId}`)
         .on(
@@ -169,30 +172,32 @@ const Dashboard = () => {
             };
 
             try {
-              // TRY to decrypt (This is the defense)
+              // --- REAL-TIME DEFENSE ---
               const decryptedJson = await decryptData(newRow.encrypted_data);
               const data = JSON.parse(decryptedJson);
               const newVital: DecryptedVital = {
                 ...data,
                 timestamp: newRow.timestamp,
-                vital_id: newRow.vital_id,
               };
-              // SUCCESS: Add to VALID list
+              // It's valid. Add to VALID list.
               setVitals((currentVitals) => [newVital, ...currentVitals]);
               toast({
-                title: "New Valid Vital Received!",
+                title: "New Vital Received!",
                 description: `Heart Rate: ${newVital.heartRate} bpm`,
               });
             } catch (err) {
-              // CATCH FAILURE: This is a MALICIOUS entry
+              // --- REAL-TIME DETECTION ---
               console.error("Failed to decrypt real-time vital:", err);
+              // It's malicious. Add to MALICIOUS list.
               const newFailedVital: FailedVital = { ...newRow, error: (err as Error).message };
               setFailedVitals((currentFailed) => [newFailedVital, ...currentFailed]);
               // Log the attack
               await logSecurityEvent("decryption_failure_realtime", newRow.patient_id, {
                 vital_id: newRow.vital_id,
+                timestamp: newRow.timestamp,
                 data: newRow.encrypted_data.substring(0, 50) + "..."
               });
+              // --------------------------
             }
           }
         )
@@ -212,15 +217,17 @@ const Dashboard = () => {
   };
 
   const handleDownload = () => {
-    let content = "--- VALID VITALS ---\n";
+    // This function will now ONLY download the VALID data
+    let content = "--- VALID VITALS DATA ---\n";
     content += vitals
       .map((v) => {
         return `Timestamp: ${new Date(v.timestamp).toLocaleString()}\nHeart Rate: ${v.heartRate} bpm\nSpO2: ${v.spo2}%\nTemperature: ${v.temp}°C\n---\n`;
       })
       .join("\n");
-
+      
+    // Optionally add the detected attacks to the download
     if (failedVitals.length > 0) {
-      content += "\n\n--- MALICIOUS/CORRUPTED DATA LOG ---\n";
+      content += "\n\n--- DETECTED MALICIOUS ENTRIES (REJECTED) ---\n";
       content += failedVitals
         .map((v) => `Timestamp: ${new Date(v.timestamp).toLocaleString()}\nError: ${v.error}\nTampered Data: ${v.encrypted_data}\n---\n`)
         .join("\n");
@@ -236,7 +243,7 @@ const Dashboard = () => {
 
     toast({
       title: "Success",
-      description: "Vitals report downloaded",
+      description: "Vitals report downloaded successfully",
     });
   };
 
@@ -249,6 +256,7 @@ const Dashboard = () => {
   };
 
   const getLatestVital = () => {
+    // Only shows the latest VALID vital
     return vitals.length > 0 ? vitals[0] : null;
   };
 
@@ -299,7 +307,7 @@ const Dashboard = () => {
                 onChange={(e) => setPatientId(e.target.value)}
               />
               <Button onClick={handleLoadAndSubscribe}>
-                {loading ? "Loading..." : (channel ? "Refresh Subscription" : "Load & Subscribe")}
+                {channel ? "Refresh & Resubscribe" : "Load Vitals"}
               </Button>
             </div>
           </CardContent>
@@ -308,40 +316,16 @@ const Dashboard = () => {
         {latest && (
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="shadow-soft gradient-card border-l-4 border-l-accent">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Heart className="w-4 h-4 text-accent" />
-                  Heart Rate
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{latest.heartRate}</div>
-                <p className="text-sm text-muted-foreground">bpm</p>
-              </CardContent>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Heart className="w-4 h-4 text-accent" />Heart Rate</CardTitle></CardHeader>
+              <CardContent><div className="text-3xl font-bold">{latest.heartRate}</div><p className="text-sm text-muted-foreground">bpm</p></CardContent>
             </Card>
             <Card className="shadow-soft gradient-card border-l-4 border-l-primary">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Droplet className="w-4 h-4 text-primary" />
-                  SpO2
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{latest.spo2}</div>
-                <p className="text-sm text-muted-foreground">%</p>
-              </CardContent>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Droplet className="w-4 h-4 text-primary" />SpO2</CardTitle></CardHeader>
+              <CardContent><div className="text-3xl font-bold">{latest.spo2}</div><p className="text-sm text-muted-foreground">%</p></CardContent>
             </Card>
             <Card className="shadow-soft gradient-card border-l-4 border-l-destructive">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Thermometer className="w-4 h-4 text-destructive" />
-                  Temperature
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{latest.temp}</div>
-                <p className="text-sm text-muted-foreground">°C</p>
-              </CardContent>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><Thermometer className="w-4 h-4 text-destructive" />Temperature</CardTitle></CardHeader>
+              <CardContent><div className="text-3xl font-bold">{latest.temp}</div><p className="text-sm text-muted-foreground">°C</p></CardContent>
             </Card>
           </div>
         )}
@@ -350,7 +334,7 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle>Real-Time Vitals Chart (Valid Data Only)</CardTitle>
             <CardDescription>
-              Showing the {vitals.length > 20 ? "last 20" : vitals.length} valid readings for patient: {patientId}
+              Showing the {vitals.length > 20 ? "last 20" : vitals.length} valid readings. Malicious data is excluded.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -358,7 +342,7 @@ const Dashboard = () => {
               <div className="h-[250px] w-full">
                 <ChartContainer config={{}} className="h-full w-full">
                   <AreaChart
-                    data={vitals.slice(0, 20).reverse()} // Show last 20, and reverse for chart (oldest to newest)
+                    data={vitals.slice(0, 20).reverse()} // Only chart VALID data
                     margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -389,7 +373,7 @@ const Dashboard = () => {
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
-                {loading ? "Loading chart data..." : "No valid data to display in chart"}
+                {loading ? "Loading chart data..." : "No data to display in chart"}
               </div>
             )}
           </CardContent>
@@ -399,7 +383,7 @@ const Dashboard = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Data History & Security Log</CardTitle>
+                <CardTitle>Vitals History & Security Log</CardTitle>
                 <CardDescription>
                   Patient: {patientId} • {vitals.length} valid readings • {failedVitals.length} malicious entries detected
                 </CardDescription>
@@ -422,7 +406,8 @@ const Dashboard = () => {
             ) : (
               <div className="space-y-3">
                 
-                {/* THIS IS THE DEFENSE: Malicious data is visually separated */}
+                {/* --- THIS IS THE PROOF OF DETECTION --- */}
+                {/* This section ONLY shows malicious data */}
                 {failedVitals.map((vital) => (
                   <div
                     key={vital.vital_id}
@@ -432,20 +417,23 @@ const Dashboard = () => {
                       <AlertTriangle className="w-5 h-5" />
                       <div>
                         <div className="font-medium">
-                          MALICIOUS ENTRY DETECTED (at {new Date(vital.timestamp).toLocaleString()})
+                          MALICIOUS ENTRY DETECTED at {new Date(vital.timestamp).toLocaleString()}
                         </div>
                         <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Reason: Failed to decrypt. Data was tampered with.
+                          Reason: Data tampering detected (decryption failed)
+                        </div>
+                        <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
+                          Tampered Data: {vital.encrypted_data.substring(0, 40)}...
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
                 
-                {/* THIS IS THE VALID DATA */}
-                {vitals.map((vital) => (
+                {/* This section ONLY shows valid data */}
+                {vitals.map((vital, index) => (
                   <div
-                    key={vital.vital_id}
+                    key={`${vital.timestamp}-${index}`}
                     className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-smooth"
                   >
                     <div className="flex-1 grid grid-cols-4 gap-4">
@@ -467,26 +455,16 @@ const Dashboard = () => {
                         <div className="text-sm text-muted-foreground">Temperature</div>
                         <div className="font-medium">{vital.temp}°C</div>
                       </div>
-This looks like a mix of two different thoughts, but I understand the core of what you want to do.
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  );
+};
 
-You want to implement the 5-stage pipeline, **but** you also want to stick to your original idea:
-* Data is sent in sets of 10.
-* An "attacker" tampers with one entry.
-* Your system detects this and *visually separates* the "malicious" entry from the "valid data" on the frontend.
-
-This is a **brilliant** way to demonstrate your system's power. We can absolutely do this.
-
-This means we must **not** use my last suggestion (the full server-side validation). That method *rejects* bad data at the server, so it would never even reach your frontend to be displayed.
-
-We must return to your **original End-to-End Encryption (E2EE) method**, as it's the only one that allows you to demonstrate this "detection and separation" on the frontend.
-
-Here is the plan to implement exactly what you described.
-
----
-
-### ## 1. The Attacker: Modify Your Simulator
-
-First, we'll change your simulator to read from the CSV you provided, send data in sets of 10, and tamper with one entry.
-
-#### Action 1: Update `simulator/requirements.txt`
-Your simulator needs to read `.csv` files. Add the `pandas` library to your `simulator/requirements.txt` file.
+export default Dashboard;
