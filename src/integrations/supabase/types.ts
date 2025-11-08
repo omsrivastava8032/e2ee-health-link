@@ -48,6 +48,8 @@ export type Database = {
           patient_id: string
           timestamp: string | null
           vital_id: string
+          is_tampered: boolean | null
+          data_hash: string | null
         }
         Insert: {
           created_at?: string | null
@@ -55,6 +57,8 @@ export type Database = {
           patient_id: string
           timestamp?: string | null
           vital_id?: string
+          is_tampered?: boolean | null
+          data_hash?: string | null
         }
         Update: {
           created_at?: string | null
@@ -62,6 +66,8 @@ export type Database = {
           patient_id?: string
           timestamp?: string | null
           vital_id?: string
+          is_tampered?: boolean | null
+          data_hash?: string | null
         }
         Relationships: []
       }

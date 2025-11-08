@@ -11,6 +11,7 @@ import base64
 import requests
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, hmac
 import os
 
 # Configuration
@@ -22,6 +23,7 @@ API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6
 # Device will cycle among these patient IDs
 PATIENT_IDS = ["123", "124", "125"]
 ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # Must match client key
+INTEGRITY_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="  # HMAC key for integrity verification
 INTERVAL_SECONDS = 2
 
 def pad_key(key: bytes) -> bytes:
@@ -54,6 +56,12 @@ def encrypt_data(data: str, key: bytes) -> str:
     # Return as base64
     return base64.b64encode(combined).decode()
 
+def generate_hash(data: str, key: bytes) -> str:
+    """Generate HMAC-SHA256 hash for data integrity verification"""
+    h = hmac.HMAC(key, hashes.SHA256(), backend=default_backend())
+    h.update(data.encode())
+    return base64.b64encode(h.finalize()).decode()
+
 def generate_vitals() -> dict:
     """Generate random but realistic vital signs"""
     return {
@@ -62,12 +70,13 @@ def generate_vitals() -> dict:
         "temp": round(random.uniform(36.0, 37.5), 1)
     }
 
-def send_vitals(encrypted_data: str, patient_id: str) -> bool:
-    """Send encrypted vitals to the API"""
+def send_vitals(encrypted_data: str, patient_id: str, data_hash: str) -> bool:
+    """Send encrypted vitals to the API with integrity hash"""
     try:
         payload = {
             "patientId": patient_id,
-            "data": encrypted_data
+            "data": encrypted_data,
+            "hash": data_hash
         }
 
         # Create headers with the API key
@@ -117,10 +126,15 @@ def main():
             # Encrypt vitals
             vitals_json = json.dumps(vitals)
             encrypted = encrypt_data(vitals_json, ENCRYPTION_KEY)
+            
+            # Generate integrity hash (hash the original JSON before encryption)
+            data_hash = generate_hash(vitals_json, INTEGRITY_KEY)
+            
             print(f"Encrypted: {encrypted[:50]}...")
+            print(f"Hash: {data_hash[:20]}...")
 
             # Send to API
-            send_vitals(encrypted, patient_id)
+            send_vitals(encrypted, patient_id, data_hash)
 
             # Wait for next iteration
             time.sleep(INTERVAL_SECONDS)

@@ -2,6 +2,7 @@
 // WARNING: The encryption key should be securely stored and never exposed in production
 
 const ENCRYPTION_KEY = "bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="; // This should be env var in production
+const INTEGRITY_KEY = "bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="; // HMAC key for integrity verification
 
 export async function encryptData(data: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -64,5 +65,29 @@ export async function decryptData(encryptedBase64: string): Promise<string> {
   } catch (error) {
     console.error("Decryption failed:", error);
     throw new Error("Failed to decrypt data");
+  }
+}
+
+export async function verifyHash(data: string, expectedHash: string): Promise<boolean> {
+  // Verify HMAC-SHA256 hash for data integrity
+  try {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(INTEGRITY_KEY.padEnd(32, '0').substring(0, 32));
+    
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    
+    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+    const computedHash = btoa(String.fromCharCode(...new Uint8Array(signature)));
+    
+    return computedHash === expectedHash;
+  } catch (error) {
+    console.error("Hash verification failed:", error);
+    return false;
   }
 }

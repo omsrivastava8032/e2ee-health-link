@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { decryptData } from "@/lib/crypto";
+import { decryptData, verifyHash } from "@/lib/crypto";
+import { AlertTriangle } from "lucide-react";
 
 interface VitalReading {
   heartRate: number;
@@ -20,7 +21,10 @@ interface Vital {
   patient_id: string;
   encrypted_data: string;
   timestamp: string;
+  data_hash?: string | null;
+  is_tampered?: boolean;
   decrypted?: VitalReading;
+  verified?: boolean; // Client-side verification result
 }
 
 const Dashboard = () => {
@@ -59,15 +63,39 @@ const Dashboard = () => {
           try {
             const row = payload.new as any;
             if (!row || row.patient_id !== patientId) return;
-            // Attempt client-side decryption to keep UI consistent
+            
+            // Decrypt and verify integrity
             const decryptedJson = await decryptData(row.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
-            setVitals((prev) => [{ ...row, decrypted }, ...prev]);
+            
+            // Verify hash
+            let verified = false;
+            if (row.data_hash) {
+              verified = await verifyHash(decryptedJson, row.data_hash);
+            }
+            
+            const isTampered = row.is_tampered || !verified;
+            
+            // Only add if not tampered
+            if (!isTampered) {
+              setVitals((prev) => [{ ...row, decrypted, verified: true }, ...prev]);
+            } else {
+              // Show alert for tampered entry
+              toast({
+                title: "🚨 Security Alert",
+                description: `Tampered entry detected for patient ${patientId} and blocked`,
+                variant: "destructive",
+              });
+            }
           } catch (_err) {
-            // If decryption fails, still show the new row (encrypted)
+            // Decryption failed = tampered
             const row = (payload as any).new;
             if (!row || row.patient_id !== patientId) return;
-            setVitals((prev) => [row as any, ...prev]);
+            toast({
+              title: "🚨 Security Alert",
+              description: `Corrupted entry detected for patient ${patientId} and blocked`,
+              variant: "destructive",
+            });
           }
         }
       )
@@ -105,21 +133,48 @@ const Dashboard = () => {
 
       if (error) throw error;
 
-      // Decrypt vitals on client side
+      // Decrypt vitals on client side and verify integrity
       const decryptedVitals = await Promise.all(
         (data || []).map(async (vital) => {
           try {
             const decryptedJson = await decryptData(vital.encrypted_data);
             const decrypted = JSON.parse(decryptedJson);
-            return { ...vital, decrypted };
+            
+            // Verify hash if present
+            let verified = false;
+            if (vital.data_hash) {
+              verified = await verifyHash(decryptedJson, vital.data_hash);
+            } else {
+              // No hash = potentially tampered
+              verified = false;
+            }
+            
+            return { 
+              ...vital, 
+              decrypted, 
+              verified,
+              is_tampered: vital.is_tampered || !verified
+            };
           } catch (err) {
             console.error("Failed to decrypt vital:", err);
-            return vital;
+            return { ...vital, verified: false, is_tampered: true };
           }
         })
       );
 
-      setVitals(decryptedVitals);
+      // Filter out tampered entries - only show verified data
+      const validVitals = decryptedVitals.filter(v => !v.is_tampered && v.verified);
+      setVitals(validVitals);
+      
+      // Show warning if tampered entries were found
+      const tamperedCount = decryptedVitals.filter(v => v.is_tampered || !v.verified).length;
+      if (tamperedCount > 0) {
+        toast({
+          title: "Security Alert",
+          description: `${tamperedCount} tampered entry(ies) detected and filtered out`,
+          variant: "destructive",
+        });
+      }
     } catch (error: any) {
       toast({
         title: "Error",
