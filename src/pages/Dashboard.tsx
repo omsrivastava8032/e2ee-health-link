@@ -6,37 +6,33 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Activity, Download, LogOut, Settings, Shield, Heart, Thermometer, Droplet, AlertTriangle } from "lucide-react";
-import { decryptData } from "@/lib/crypto";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
-// Interface for a single decrypted vital reading
+// Interface for a single VALID vital reading
 interface VitalReading {
   heartRate: number;
   spo2: number;
   temp: number;
-}
-
-// Interface for the data we'll store in our state (with timestamp)
-interface DecryptedVital extends VitalReading {
   timestamp: string;
 }
 
-// Interface for a vital that failed decryption (malicious)
-interface FailedVital {
-  vital_id: string;
-  timestamp: string;
-  error: string;
-  encrypted_data: string;
+// Interface for a DETECTED security event
+interface SecurityEvent {
+  id: number;
+  created_at: string;
+  event_type: string;
+  patient_id: string;
+  metadata: {
+    reason: string;
+    data: any;
+  }
 }
 
 const Dashboard = () => {
-  // This holds the GOOD data
-  const [vitals, setVitals] = useState<DecryptedVital[]>([]);
-  // This holds the MALICIOUS data
-  const [failedVitals, setFailedVitals] = useState<FailedVital[]>([]);
-  
+  const [vitals, setVitals] = useState<VitalReading[]>([]);
+  const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]); // State for anomalies
   const [loading, setLoading] = useState(false);
   const [patientId, setPatientId] = useState("p123");
   const [user, setUser] = useState<any>(null);
@@ -53,31 +49,6 @@ const Dashboard = () => {
       }
     };
   }, [channel]);
-
-  // This function logs the attack to your new 'security_events' table
-  const logSecurityEvent = async (eventType: string, patientId: string, metadata: any) => {
-    if (!user) return; // Don't log if user isn't loaded
-    try {
-      const { error } = await supabase.from("security_events").insert({
-        event_type: eventType, // This will now be "Modification of Messages"
-        patient_id: patientId,
-        metadata: metadata,
-        user_id: user.id, // Link to the user who detected it
-      });
-      if (error) {
-        console.error("Error logging security event:", error);
-      } else {
-        console.warn(`Security event logged: ${eventType}`);
-        toast({
-          title: "Security Alert!",
-          description: `Detected Attack: ${eventType}`,
-          variant: "destructive",
-        });
-      }
-    } catch (err) {
-      console.error("Failed to log security event:", err);
-    }
-  };
 
   const checkAuth = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -101,104 +72,64 @@ const Dashboard = () => {
     }
     // Clear old data on new load
     setVitals([]);
-    setFailedVitals([]);
+    setSecurityEvents([]);
 
     try {
-      // 1. Fetch all historical data for this patient
-      const { data: existingVitals, error } = await supabase
+      // 1. Fetch all *valid* historical data
+      const { data: existingVitals, error: vitalsError } = await supabase
         .from("vitals")
-        .select("vital_id, encrypted_data, timestamp, patient_id")
+        .select("data, timestamp") // 'data' now holds plaintext JSON
         .eq("patient_id", patientId)
         .order("timestamp", { ascending: false });
 
-      if (error) throw error;
+      if (vitalsError) throw vitalsError;
 
-      const decryptedList: DecryptedVital[] = [];
-      const failedList: FailedVital[] = [];
+      // 2. Fetch all *rejected* security events
+      const { data: existingEvents, error: eventsError } = await supabase
+        .from("security_events")
+        .select("*")
+        .eq("patient_id", patientId)
+        .order("created_at", { ascending: false });
+      
+      if (eventsError) throw eventsError;
+      setSecurityEvents(existingEvents || []);
 
-      // 2. Process historical data
-      await Promise.all(
-        (existingVitals || []).map(async (vital) => {
-          try {
-            // --- THIS IS THE DEFENSE ---
-            const decryptedJson = await decryptData(vital.encrypted_data);
-            const data = JSON.parse(decryptedJson);
-            decryptedList.push({ ...data, timestamp: vital.timestamp });
-          } catch (err) {
-            // --- THIS IS THE DETECTION ---
-            console.error("Failed to decrypt vital:", err);
-            failedList.push({ ...vital, error: (err as Error).message, encrypted_data: vital.encrypted_data });
-            // Log the attack with your new text
-            await logSecurityEvent("Modification of Messages", vital.patient_id, {
-              reason: "Data integrity-violated",
-              vital_id: vital.vital_id,
-              timestamp: vital.timestamp,
-              tampered_data: vital.encrypted_data
-            });
-            // --------------------------
-          }
-        })
-      );
+      // 3. Process valid vitals (NO DECRYPTION NEEDED)
+      const validList = (existingVitals || []).map(vital => {
+        return { ...vital.data, timestamp: vital.timestamp };
+      });
+      setVitals(validList);
 
-      setVitals(decryptedList);
-      setFailedVitals(failedList);
-
-      if (decryptedList.length === 0 && failedList.length === 0) {
-        toast({
-          title: "No data found",
-          description: "Listening for new vitals for this patient...",
-        });
+      if (validList.length === 0 && existingEvents.length === 0) {
+        toast({ title: "No data found", description: "Listening for new updates..." });
       }
 
-      // 3. Subscribe to real-time updates
+      // 4. Create NEW real-time subscriptions for BOTH tables
       const newChannel = supabase
-        .channel(`vitals-for-${patientId}`)
+        .channel(`patient-data-${patientId}`)
         .on(
           "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "vitals",
-            filter: `patient_id=eq.${patientId}`,
-          },
-          async (payload) => {
-            console.log("New vital received!", payload);
-            
-            const newRow = payload.new as {
-              vital_id: string;
-              encrypted_data: string;
-              timestamp: string;
-              patient_id: string;
-            };
-
-            try {
-              // --- REAL-TIME DEFENSE ---
-              const decryptedJson = await decryptData(newRow.encrypted_data);
-              const data = JSON.parse(decryptedJson);
-              const newVital: DecryptedVital = {
-                ...data,
-                timestamp: newRow.timestamp,
-              };
-              // It's valid. Add to VALID list.
-              setVitals((currentVitals) => [newVital, ...currentVitals]);
-              toast({
-                title: "New Vital Received!",
-                description: `Heart Rate: ${newVital.heartRate} bpm`,
-              });
-            } catch (err) {
-              // --- REAL-TIME DETECTION ---
-              console.error("Failed to decrypt real-time vital:", err);
-              const newFailedVital: FailedVital = { ...newRow, error: (err as Error).message, encrypted_data: newRow.encrypted_data };
-              setFailedVitals((currentFailed) => [newFailedVital, ...currentFailed]);
-              // Log the attack with your new text
-              await logSecurityEvent("Modification of Messages", newRow.patient_id, {
-                reason: "Data integrity-violated",
-                vital_id: newRow.vital_id,
-                timestamp: newRow.timestamp,
-                tampered_data: newRow.encrypted_data
-              });
-              // --------------------------
-            }
+          { event: "INSERT", schema: "public", table: "vitals", filter: `patient_id=eq.${patientId}`},
+          (payload) => {
+            console.log("New VALID vital received!", payload);
+            const newRow = payload.new as { data: any, timestamp: string };
+            const newVital: VitalReading = { ...newRow.data, timestamp: newRow.timestamp };
+            setVitals((current) => [newVital, ...current]);
+            toast({ title: "New Valid Vital Received!", description: `Heart Rate: ${newVital.heartRate} bpm` });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "security_events", filter: `patient_id=eq.${patientId}`},
+          (payload) => {
+            console.warn("New SECURITY EVENT received!", payload);
+            const newEvent = payload.new as SecurityEvent;
+            setSecurityEvents((current) => [newEvent, ...current]);
+            toast({
+              title: "Security Attack Detected!",
+              description: newEvent.metadata.reason,
+              variant: "destructive",
+            });
           }
         )
         .subscribe();
@@ -206,11 +137,7 @@ const Dashboard = () => {
       setChannel(newChannel);
 
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -226,10 +153,10 @@ const Dashboard = () => {
       .join("\n");
       
     // Optionally add the detected attacks to the download
-    if (failedVitals.length > 0) {
-      content += "\n\n--- DETECTED MALICIOUS ENTRIES (REJECTED) ---\n";
-      content += failedVitals
-        .map((v) => `Attack Type: Modification of Messages\nTimestamp: ${new Date(v.timestamp).toLocaleString()}\nReason: Data integrity-violated\nTampered Data: ${v.encrypted_data}\n---\n`)
+    if (securityEvents.length > 0) {
+      content += "\n\n--- DETECTED SECURITY EVENTS (REJECTED) ---\n";
+      content += securityEvents
+        .map((event) => `Attack Type: ${event.event_type}\nTimestamp: ${new Date(event.created_at).toLocaleString()}\nReason: ${event.metadata.reason}\nData: ${JSON.stringify(event.metadata.data)}\n---\n`)
         .join("\n");
     }
 
@@ -237,7 +164,7 @@ const Dashboard = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `vitals-${patientId}-${new Date().toISOString()}.txt`;
+    a.download = `vitals-report-${patientId}-${new Date().toISOString()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -248,9 +175,7 @@ const Dashboard = () => {
   };
 
   const handleLogout = async () => {
-    if (channel) {
-      supabase.removeChannel(channel);
-    }
+    if (channel) supabase.removeChannel(channel);
     await supabase.auth.signOut();
     navigate("/auth");
   };
@@ -264,7 +189,6 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header remains the same */}
       <header className="border-b bg-card shadow-soft">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -274,28 +198,23 @@ const Dashboard = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">MIoT Vitals Dashboard</h1>
+                {/* Updated description to show the "new method" */}
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Shield className="w-3 h-3" />
-                  End-to-end encrypted
+                  Server-Side Validation Enabled
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate("/profile")}>
-                <Settings className="w-4 h-4 mr-2" />
-                Profile
-              </Button>
-              <Button variant="outline" onClick={handleLogout}>
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
+              <Button variant="outline" onClick={() => navigate("/profile")}><Settings className="w-4 h-4 mr-2" />Profile</Button>
+              <Button variant="outline" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2" />Logout</Button>
             </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-6">
-        {/* Patient Selection Card remains the same */}
+        {/* Patient Selection Card */}
         <Card className="shadow-medium">
           <CardHeader>
             <CardTitle>Patient Selection</CardTitle>
@@ -303,11 +222,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="flex gap-2">
-              <Input
-                placeholder="Patient ID (e.g., p123)"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-              />
+              <Input placeholder="Patient ID (e.g., p123)" value={patientId} onChange={(e) => setPatientId(e.target.value)} />
               <Button onClick={handleLoadAndSubscribe}>
                 {channel ? "Refresh & Resubscribe" : "Load Vitals"}
               </Button>
@@ -315,7 +230,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Latest Vitals Cards remain the same */}
+        {/* Latest Vitals Cards */}
         {latest && (
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="shadow-soft gradient-card border-l-4 border-l-accent">
@@ -333,7 +248,7 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Real-Time Chart Card remains the same */}
+        {/* Real-Time Chart Card (for valid data) */}
         <Card className="shadow-medium">
           <CardHeader>
             <CardTitle>Real-Time Vitals Chart (Valid Data Only)</CardTitle>
@@ -383,96 +298,49 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* --- 
-          UPDATED VITALS HISTORY CARD 
-          This is where your requested changes are.
-        --- */}
+        {/* --- THIS IS YOUR NEW SECURITY LOG --- */}
         <Card className="shadow-medium">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Vitals History & Security Log</CardTitle>
-                <CardDescription>
-                  Patient: {patientId} • {vitals.length} valid readings • {failedVitals.length} malicious entries detected
-                </CardDescription>
-              </div>
-              <Button onClick={handleDownload} disabled={vitals.length === 0 && failedVitals.length === 0}>
-                <Download className="w-4 h-4 mr-2" />
-                Download Report
-              </Button>
-            </div>
+            <CardTitle>Security & Anomaly Log</CardTitle>
+            <CardDescription>
+              Detected {securityEvents.length} malicious or invalid entries. These have been blocked from the main vitals table.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
-            ) : vitals.length === 0 && failedVitals.length === 0 ? (
+            ) : securityEvents.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No vitals found for this patient
+                No security events detected.
               </div>
             ) : (
               <div className="space-y-3">
-                
-                {/* --- THIS IS THE DISPLAY FOR YOUR MALICIOUS DATA --- */}
-                {failedVitals.map((vital) => (
+                {securityEvents.map((event) => (
                   <div
-                    key={vital.vital_id}
+                    key={event.id}
                     className="flex items-center justify-between p-4 border rounded-lg bg-destructive/10 border-destructive/20 text-destructive"
                   >
                     <div className="flex items-center gap-4">
                       <AlertTriangle className="w-5 h-5" />
                       <div>
-                        {/* --- YOUR REQUESTED TEXT --- */}
                         <div className="font-medium">
-                          Attack Type: Modification of Messages
+                          ATTACK DETECTED: {event.metadata.reason}
                         </div>
                         <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Reason: Data integrity-violated
+                          Timestamp: {new Date(event.created_at).toLocaleString()}
                         </div>
                         <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Timestamp: {new Date(vital.timestamp).toLocaleString()}
+                          Rejected Payload: {JSON.stringify(event.metadata.data)}
                         </div>
-                        <div className="text-sm opacity-80" style={{ wordBreak: 'break-all' }}>
-                          Tampered Data: {vital.encrypted_data}
-                        </div>
-                        {/* --------------------------- */}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                {/* This section ONLY shows valid data */}
-                {vitals.map((vital, index) => (
-                  <div
-                    key={`${vital.timestamp}-${index}`}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-smooth"
-                  >
-                    <div className="flex-1 grid grid-cols-4 gap-4">
-                      <div>
-                        <div className="text-sm text-muted-foreground">Time</div>
-                        <div className="font-medium">
-                          {new Date(vital.timestamp).toLocaleString()}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">Heart Rate</div>
-                        <div className="font-medium">{vital.heartRate} bpm</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">SpO2</div>
-                        <div className="font-medium">{vital.spo2}%</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">Temperature</div>
-                        <div className="font-medium">{vital.temp}°C</div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </CardContent>
+          </Code>
         </Card>
       </main>
     </div>
