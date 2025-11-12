@@ -26,7 +26,9 @@ try:
     full_payload = {
         "patientId": PATIENT_ID,
         "timestamp": current_time_iso,
-        "vitals": vitals_payload
+        "vitals": vitals_payload,
+        "deviceId": "dev_001",
+        "token": hashlib.sha256(("super_secret_123" + (lambda g: f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}")(time.gmtime())).encode()).hexdigest()
     }
     payload_json = json.dumps(full_payload, separators=(',', ':'))
     signature = sign_payload(payload_json, HMAC_SECRET)

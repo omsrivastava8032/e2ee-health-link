@@ -49,7 +49,9 @@ try:
         valid_payload_obj = {
             "patientId": PATIENT_ID,
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            "vitals": vitals_valid
+            "vitals": vitals_valid,
+            "deviceId": "dev_001",
+            "token": hashlib.sha256(("super_secret_123" + (lambda g: f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}")(time.gmtime())).encode()).hexdigest()
         }
         valid_payload_json = json.dumps(valid_payload_obj, separators=(',', ':'))
         valid_signature = sign_payload(valid_payload_json, HMAC_SECRET)
@@ -69,7 +71,9 @@ try:
         original_obj = {
             "patientId": PATIENT_ID,
             "timestamp": future_time_iso,
-            "vitals": vitals_valid
+            "vitals": vitals_valid,
+            "deviceId": "dev_001",
+            "token": hashlib.sha256(("super_secret_123" + (lambda g: f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}")(time.gmtime(time.time()+60))).encode()).hexdigest()
         }
         original_for_sig = json.dumps(original_obj, separators=(',', ':'))
         real_signature = sign_payload(original_for_sig, HMAC_SECRET)

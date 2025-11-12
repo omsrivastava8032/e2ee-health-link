@@ -11,6 +11,14 @@ print("Running Attack 2: Masquerade Attack")
 print("Attacker forges device_id/token without knowing shared secret.")
 print("=" * 60)
 
+import hmac
+import hashlib
+
+HMAC_SECRET = "my-super-secret-hmac-key-12345"
+
+def sign_payload(payload_json: str, secret: str) -> str:
+    return hmac.new(secret.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+
 try:
     for i in range(10):
         fake_payload = {
@@ -21,10 +29,12 @@ try:
             "token": "some_random_garbage_token_" + str(random.randint(1000,9999))
         }
         payload_json = json.dumps(fake_payload, separators=(',', ':'))
+        signature = sign_payload(payload_json, HMAC_SECRET)
         headers = {
             "Content-Type": "application/json",
             "apikey": API_KEY,
-            "Authorization": f"Bearer {API_KEY}"
+            "Authorization": f"Bearer {API_KEY}",
+            "X-Signature": signature
         }
         response = requests.post(API_ENDPOINT, data=payload_json, headers=headers, timeout=5)
         print(f"[{i+1}] Sent MASQUERADE packet -> Status {response.status_code} | {response.text[:120]}")

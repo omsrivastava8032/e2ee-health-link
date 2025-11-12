@@ -159,7 +159,8 @@ Deno.serve(async (req) => {
     const signature = req.headers.get('X-Signature');
 
     if (!patientId || !timestamp || !vitals || !signature || !deviceId || !token) {
-      return new Response(JSON.stringify({ error: 'Missing required fields (patientId, timestamp, vitals, signature, deviceId, token)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+      await logAnomaly(supabase, patientId, "SECURITY_ANOMALY", "Missing required fields", payload || {});
+      return new Response(JSON.stringify({ error: 'Missing required fields (patientId, timestamp, vitals, signature, deviceId, token)' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
     // Run the pipeline
