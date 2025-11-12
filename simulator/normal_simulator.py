@@ -53,7 +53,12 @@ def main():
             payload_json = json.dumps(full_payload, separators=(',', ':'))
             signature = sign_payload(payload_json, HMAC_SECRET)
             
-            headers = {"Content-Type": "application/json", "apikey": API_KEY, "X-Signature": signature}
+            headers = {
+                "Content-Type": "application/json",
+                "apikey": API_KEY,
+                "Authorization": f"Bearer {API_KEY}",
+                "X-Signature": signature
+            }
             
             response = requests.post(API_ENDPOINT, data=payload_json, headers=headers, timeout=10)
             print(f"Sent reading {count}: {vitals} -> Status {response.status_code}")

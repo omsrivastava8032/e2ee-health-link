@@ -32,6 +32,7 @@ try:
     headers = {
         "Content-Type": "application/json",
         "apikey": API_KEY,
+        "Authorization": f"Bearer {API_KEY}",
         "X-Signature": signature
     }
     
