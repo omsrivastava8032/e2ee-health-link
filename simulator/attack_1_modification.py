@@ -10,7 +10,7 @@ API_ENDPOINT = "https://xypxadidbfankltjojdm.supabase.co/functions/v1/vitals-api
 API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5cHhhZGlkYmZhbmtsdGpvamRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzMjE3OTEsImV4cCI6MjA3Nzg5Nzc5MX0.rHUf01T7OL6Vx8V3sRygXhMRm6L2wK7uI7mpIF5S2ck"
 PATIENT_ID = "p123"
 HMAC_SECRET = "my-super-secret-hmac-key-12345"
-DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx - Sheet1.csv')
+DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx')
 
 print("=" * 60)
 print("Running Advanced Attack 1: Message Modification")
@@ -25,7 +25,7 @@ def sign_payload(payload_json: str, secret: str) -> str:
 try:
     # 1. Load the dataset to get one valid row
     try:
-        df = pd.read_csv(DATASET_FILE)
+        df = pd.read_excel(DATASET_FILE)
         df = df[['Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)']].rename(columns={
             'Heart Rate (bpm)': 'heartRate', 'SpO2 Level (%)': 'spo2', 'Body Temperature (°C)': 'temp'
         }).dropna()
@@ -50,6 +50,7 @@ try:
     headers_valid = {
         "Content-Type": "application/json",
         "apikey": API_KEY,
+        "Authorization": f"Bearer {API_KEY}",
         "X-Signature": valid_signature
     }
     
@@ -85,6 +86,7 @@ try:
     headers_malicious = {
         "Content-Type": "application/json",
         "apikey": API_KEY,
+        "Authorization": f"Bearer {API_KEY}",
         "X-Signature": real_signature # This signature no longer matches the tampered data
     }
     
