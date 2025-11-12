@@ -22,7 +22,7 @@ def sign_payload(payload_json: str, secret: str) -> str:
 try:
     for i in range(10):
         fake_payload = {
-            "patientId": f"p999",
+            "patientId": "p123",
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + i)),
             "vitals": {"heartRate": random.randint(50, 200), "spo2": random.randint(60, 100), "temp": round(random.uniform(34, 42), 1)},
             "deviceId": "dev_001",
