@@ -73,7 +73,8 @@ try:
             "timestamp": future_time_iso,
             "vitals": vitals_valid,
             "deviceId": "dev_001",
-            "token": hashlib.sha256(("super_secret_123" + (lambda g: f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}")(time.gmtime(time.time()+60))).encode()).hexdigest()
+            # Use current-minute token so Stage 0 passes; Stage 3 will fail due to tampering
+            "token": hashlib.sha256(("super_secret_123" + (lambda g: f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}")(time.gmtime())).encode()).hexdigest()
         }
         original_for_sig = json.dumps(original_obj, separators=(',', ':'))
         real_signature = sign_payload(original_for_sig, HMAC_SECRET)
