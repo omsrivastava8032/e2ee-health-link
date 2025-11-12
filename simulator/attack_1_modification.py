@@ -63,9 +63,15 @@ try:
         resp_valid = requests.post(API_ENDPOINT, data=valid_payload_json, headers=headers_valid, timeout=10)
         print(f"[{i+1}] VALID -> {resp_valid.status_code}: {valid_payload_json}")
 
-        # Build a tampered version of the SAME packet:
-        # Sign the original string, then change a value so signature becomes invalid
-        original_for_sig = valid_payload_json
+        # Build a tampered packet with a NEWER timestamp so Stage 1 (replay) passes,
+        # but modify the body AFTER signing so Stage 3 (invalid signature) triggers.
+        future_time_iso = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 1))
+        original_obj = {
+            "patientId": PATIENT_ID,
+            "timestamp": future_time_iso,
+            "vitals": vitals_valid
+        }
+        original_for_sig = json.dumps(original_obj, separators=(',', ':'))
         real_signature = sign_payload(original_for_sig, HMAC_SECRET)
         tampered_obj = json.loads(original_for_sig)
         tampered_obj["vitals"]["heartRate"] = tampered_obj["vitals"]["heartRate"] + 1  # minimal change
