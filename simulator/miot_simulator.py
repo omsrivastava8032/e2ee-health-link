@@ -23,7 +23,7 @@ ENCRYPTION_KEY = b"bSYgISDhzMjkeb22DO3Oxk0KDA8qSIrYGYAiM7Ax08A="
 INTERVAL_SECONDS = 2  # Send one entry every 2 seconds
 SET_SIZE = 10         # Send in sets of 10
 ATTACK_INDEX = 5      # Attack the 5th item in every set
-DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx - Sheet1.csv') # Path to your new CSV
+DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx') # Path to your Excel file
 
 def pad_key(key: bytes) -> bytes:
     """Ensure key is exactly 32 bytes"""
@@ -71,7 +71,7 @@ def main():
     
     try:
         print(f"Loading dataset from: {DATASET_FILE}")
-        df = pd.read_csv(DATASET_FILE)
+        df = pd.read_excel(DATASET_FILE)
         # Use the columns from your new CSV
         df = df[['Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)']].rename(columns={
             'Heart Rate (bpm)': 'heartRate',
