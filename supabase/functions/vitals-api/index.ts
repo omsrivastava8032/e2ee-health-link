@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 // NEW: Import HMAC function
 import { createHmac } from "https://deno.land/std@0.177.0/node/crypto.ts";
+import { createHash } from "https://deno.land/std@0.177.0/node/crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,6 +21,38 @@ async function logAnomaly(supabase: any, patientId: string, type: string, reason
   }).then(({ error }: { error: any }) => {
     if (error) console.error("Error logging anomaly:", error);
   });
+}
+
+// Stage 0: Masquerade Defense - Time-varying shared secret per device
+async function stage0_VerifyDeviceToken(supabase: any, deviceId: string, token: string) {
+  if (!deviceId || !token) {
+    throw new Error("Masquerade Attack Detected: Missing deviceId or token");
+  }
+  const { data, error } = await supabase
+    .from('device_secrets')
+    .select('secret_key')
+    .eq('device_id', deviceId)
+    .single();
+  if (error) {
+    throw new Error(`Masquerade Attack Detected: Unknown device ${deviceId}`);
+  }
+  const secret = data.secret_key as string;
+  const now = new Date();
+  const minuteKey = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}-${String(d.getUTCHours()).padStart(2,'0')}-${String(d.getUTCMinutes()).padStart(2,'0')}`;
+  const currentMinute = minuteKey(now);
+  const prev = new Date(now.getTime() - 60_000);
+  const previousMinute = minuteKey(prev);
+
+  const makeToken = (s: string, m: string) =>
+    createHash('sha256').update(s + m).digest('hex');
+
+  const expectedNow = makeToken(secret, currentMinute);
+  const expectedPrev = makeToken(secret, previousMinute);
+
+  if (token !== expectedNow && token !== expectedPrev) {
+    throw new Error("Masquerade Attack Detected: Invalid device token");
+  }
 }
 
 // Stage 1: Session Gatekeeper (Detects Replay Attacks)
@@ -121,16 +154,18 @@ Deno.serve(async (req) => {
     // 1. Read Data (Raw string is needed for signature)
     payloadString = await req.text();
     payload = JSON.parse(payloadString);
-    const { timestamp, vitals } = payload;
+    const { timestamp, vitals, deviceId, token } = payload;
     patientId = payload.patientId || "unknown"; // Get patientId for logging
     const signature = req.headers.get('X-Signature');
 
-    if (!patientId || !timestamp || !vitals || !signature) {
-      return new Response(JSON.stringify({ error: 'Missing required fields or signature' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
+    if (!patientId || !timestamp || !vitals || !signature || !deviceId || !token) {
+      return new Response(JSON.stringify({ error: 'Missing required fields (patientId, timestamp, vitals, signature, deviceId, token)' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
     }
 
     // Run the pipeline
     try {
+      // Stage 0 (Masquerade)
+      await stage0_VerifyDeviceToken(supabase, deviceId, token);
       // Stage 1 & 3 first (Security)
       await stage1_SessionGatekeeper(supabase, patientId, timestamp);
       await stage3_VerifySignature(payloadString, signature, timestamp);

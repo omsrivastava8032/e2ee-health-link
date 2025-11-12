@@ -11,12 +11,22 @@ API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6
 PATIENT_ID = "p123"
 HMAC_SECRET = "my-super-secret-hmac-key-12345"
 DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alerts.xlsx')
+DEVICE_ID = "dev_001"
+DEVICE_SECRET = "super_secret_123"
 INTERVAL_SECONDS = 3
 
 def sign_payload(payload_json: str, secret: str) -> str:
     key = secret.encode()
     message = payload_json.encode()
     return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+def minute_key(t: float) -> str:
+    g = time.gmtime(t)
+    return f"{g.tm_year}-{g.tm_mon:02d}-{g.tm_mday:02d}-{g.tm_hour:02d}-{g.tm_min:02d}"
+
+def device_token(secret: str, t: float) -> str:
+    mk = minute_key(t)
+    return hashlib.sha256((secret + mk).encode()).hexdigest()
 
 def main():
     print("=" * 60)
@@ -48,7 +58,9 @@ def main():
             full_payload = {
                 "patientId": PATIENT_ID,
                 "timestamp": current_time_iso,
-                "vitals": vitals
+                "vitals": vitals,
+                "deviceId": DEVICE_ID,
+                "token": device_token(DEVICE_SECRET, time.time())
             }
             payload_json = json.dumps(full_payload, separators=(',', ':'))
             signature = sign_payload(payload_json, HMAC_SECRET)
