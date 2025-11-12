@@ -44,30 +44,24 @@ export type Database = {
       vitals: {
         Row: {
           created_at: string | null
-          encrypted_data: string
+          data: Json
           patient_id: string
           timestamp: string | null
           vital_id: string
-          is_tampered: boolean | null
-          data_hash: string | null
         }
         Insert: {
           created_at?: string | null
-          encrypted_data: string
+          data: Json
           patient_id: string
           timestamp?: string | null
           vital_id?: string
-          is_tampered?: boolean | null
-          data_hash?: string | null
         }
         Update: {
           created_at?: string | null
-          encrypted_data?: string
+          data?: Json
           patient_id?: string
           timestamp?: string | null
           vital_id?: string
-          is_tampered?: boolean | null
-          data_hash?: string | null
         }
         Relationships: []
       }
