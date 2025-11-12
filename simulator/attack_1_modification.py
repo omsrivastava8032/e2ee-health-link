@@ -14,7 +14,7 @@ DATASET_FILE = os.path.join(os.path.dirname(__file__), 'patients_data_with_alert
 
 print("=" * 60)
 print("Running Advanced Attack 1: Message Modification")
-print("Sends 1 VALID packet, then 1 MALICIOUS (tampered) packet.")
+print("For each reading: sends VALID packet, then TAMPERED (modified) packet.")
 print("=" * 60)
 
 def sign_payload(payload_json: str, secret: str) -> str:
@@ -23,7 +23,7 @@ def sign_payload(payload_json: str, secret: str) -> str:
     return hmac.new(key, message, hashlib.sha256).hexdigest()
 
 try:
-    # 1. Load the dataset to get one valid row
+    # 1. Load the dataset
     try:
         df = pd.read_excel(DATASET_FILE)
         df = df[['Heart Rate (bpm)', 'SpO2 Level (%)', 'Body Temperature (°C)']].rename(columns={
@@ -34,72 +34,53 @@ try:
         print(f"✗ ERROR: Could not read dataset: {e}")
         exit()
 
-    # --- 2. Send 1 VALID Packet ---
-    print("\n[Phase 1: Sending VALID packet to appear normal]")
-    valid_row = df.iloc[0].to_dict()
-    vitals_valid = {"heartRate": int(valid_row['heartRate']), "spo2": int(valid_row['spo2']), "temp": round(float(valid_row['temp']), 1)}
-    
-    valid_payload_obj = {
-        "patientId": PATIENT_ID,
-        "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        "vitals": vitals_valid
-    }
-    valid_payload_json = json.dumps(valid_payload_obj, separators=(',', ':'))
-    valid_signature = sign_payload(valid_payload_json, HMAC_SECRET)
-    
-    headers_valid = {
-        "Content-Type": "application/json",
-        "apikey": API_KEY,
-        "Authorization": f"Bearer {API_KEY}",
-        "X-Signature": valid_signature
-    }
-    
-    response_valid = requests.post(API_ENDPOINT, data=valid_payload_json, headers=headers_valid)
-    print(f"  -> Sent VALID: {valid_payload_json}")
-    print(f"  -> Status: {response_valid.status_code} (Should be 200)")
-    
-    print("\nWaiting 5 seconds...")
-    time.sleep(5)
+    # 2. For a small batch, send VALID then TAMPERED for each row
+    num_samples = min(5, len(df))
+    print(f"\nSending {num_samples} pairs (VALID + TAMPERED) ...\n")
+    for i in range(num_samples):
+        row = df.iloc[i].to_dict()
+        vitals_valid = {
+            "heartRate": int(row['heartRate']),
+            "spo2": int(row['spo2']),
+            "temp": round(float(row['temp']), 1)
+        }
 
-    # --- 3. Send 1 MALICIOUS Packet ---
-    print("[Phase 2: Sending MALICIOUS (tampered) packet]")
-    
-    # Create a payload with dangerous vitals
-    vitals_malicious = {"heartRate": 999, "spo2": 0, "temp": 99.0} # Malicious data
-    
-    malicious_payload_obj = {
-        "patientId": PATIENT_ID,
-        "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        "vitals": vitals_malicious
-    }
-    malicious_payload_json = json.dumps(malicious_payload_obj, separators=(',', ':'))
-    
-    # THIS IS THE ATTACK: We create a REAL signature, then TAMPER the data
-    real_signature = sign_payload(malicious_payload_json, HMAC_SECRET)
-    
-    # Tamper the payload *after* signing
-    tampered_payload_json = malicious_payload_json.replace("999", "888") 
-    
-    print(f"  -> Sending TAMPERED payload: {tampered_payload_json}")
-    print(f"  -> Sending ORIGINAL (now invalid) signature: {real_signature}")
+        # Fresh timestamp for the valid packet so Stage 1 passes
+        valid_payload_obj = {
+            "patientId": PATIENT_ID,
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            "vitals": vitals_valid
+        }
+        valid_payload_json = json.dumps(valid_payload_obj, separators=(',', ':'))
+        valid_signature = sign_payload(valid_payload_json, HMAC_SECRET)
 
-    headers_malicious = {
-        "Content-Type": "application/json",
-        "apikey": API_KEY,
-        "Authorization": f"Bearer {API_KEY}",
-        "X-Signature": real_signature # This signature no longer matches the tampered data
-    }
-    
-    response_malicious = requests.post(API_ENDPOINT, data=tampered_payload_json, headers=headers_malicious)
-    
-    if response_malicious.status_code == 403:
-        print("\n--- ATTACK DETECTED! ---")
-        print(f"Success! Server rejected our payload with status 403.")
-        print(f"Response: {response_malicious.text}")
-        print("Check the dashboard 'Security & Anomaly Log' to see the alert.")
-    else:
-        print(f"\nAttack failed? Server responded with: {response_malicious.status_code}")
-        print(f"Response: {response_malicious.text}")
+        headers_valid = {
+            "Content-Type": "application/json",
+            "apikey": API_KEY,
+            "Authorization": f"Bearer {API_KEY}",
+            "X-Signature": valid_signature
+        }
+        resp_valid = requests.post(API_ENDPOINT, data=valid_payload_json, headers=headers_valid, timeout=10)
+        print(f"[{i+1}] VALID -> {resp_valid.status_code}: {valid_payload_json}")
+
+        # Build a tampered version of the SAME packet:
+        # Sign the original string, then change a value so signature becomes invalid
+        original_for_sig = valid_payload_json
+        real_signature = sign_payload(original_for_sig, HMAC_SECRET)
+        tampered_obj = json.loads(original_for_sig)
+        tampered_obj["vitals"]["heartRate"] = tampered_obj["vitals"]["heartRate"] + 1  # minimal change
+        tampered_payload_json = json.dumps(tampered_obj, separators=(',', ':'))
+
+        headers_malicious = {
+            "Content-Type": "application/json",
+            "apikey": API_KEY,
+            "Authorization": f"Bearer {API_KEY}",
+            "X-Signature": real_signature  # now INVALID for tampered_payload_json
+        }
+        resp_bad = requests.post(API_ENDPOINT, data=tampered_payload_json, headers=headers_malicious, timeout=10)
+        print(f"[{i+1}] TAMPERED -> {resp_bad.status_code}: {tampered_payload_json}")
+
+        time.sleep(1)
 
 except Exception as e:
     print(f"Error: {e}")
